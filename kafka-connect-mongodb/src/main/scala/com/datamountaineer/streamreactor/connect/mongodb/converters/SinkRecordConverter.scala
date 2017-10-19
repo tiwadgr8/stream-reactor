@@ -72,25 +72,47 @@ object SinkRecordConverter {
             schemaType match {
 
               case Schema.Type.INT8 | Schema.Type.INT16 | Schema.Type.BOOLEAN | Schema.Type.FLOAT32 | Schema.Type.FLOAT64 => value
-              case Schema.Type.INT32 =>
-                if (schema != null && Date.LOGICAL_NAME == schema.name) ISO_DATE_FORMAT.format(Date.toLogical(schema, value.asInstanceOf[Int]))
-                else if (schema != null && Time.LOGICAL_NAME == schema.name) TIME_FORMAT.format(Time.toLogical(schema, value.asInstanceOf[Int]))
+              case Schema.Type.INT32 => {
+                //Fix for the runtime error: 'Invalid type for INT32: class java.util.Date'
+                if (schema != null && Date.LOGICAL_NAME == schema.name) {
+                  value match {
+                      case d: java.util.Date => ISO_DATE_FORMAT.format(d)
+                      case _ => ISO_DATE_FORMAT.format(Date.toLogical(schema, value.asInstanceOf[Int]))
+                  }
+                }else if (schema != null && Time.LOGICAL_NAME == schema.name){
+                   //TIME_FORMAT.format(Time.toLogical(schema, value.asInstanceOf[Int]))
+                   value match {
+                      case d: java.util.Date => TIME_FORMAT.format(d)
+                      case _ => TIME_FORMAT.format(Time.toLogical(schema, value.asInstanceOf[Int]))
+                    }
+                }
                 else value
+              }
 
-              case Schema.Type.INT64 =>
-                if (schema != null && Timestamp.LOGICAL_NAME == schema.name) Timestamp.toLogical(schema, value.asInstanceOf[Long])
-                else value
-
+              case Schema.Type.INT64 => {                          
+                //Fix for the runtime error: 'Invalid type for INT64: class java.util.Date'
+                if (schema != null && Timestamp.LOGICAL_NAME == schema.name) {                  
+                   value match {
+                      case d: java.util.Date => ISO_DATE_FORMAT.format(d)
+                      case _ => ISO_DATE_FORMAT.format(Timestamp.toLogical(schema, value.asInstanceOf[Long]))
+                    }                  
+                } else {                  
+                  value
+                }
+              }
               case Schema.Type.STRING => value.asInstanceOf[CharSequence].toString
 
-              case Schema.Type.BYTES =>
-                if (schema != null && Decimal.LOGICAL_NAME == schema.name) Decimal.toLogical(schema, value.asInstanceOf[Array[Byte]])
+              case Schema.Type.BYTES => {
+                //Fix for the runtime error: 'Invalid type for BYTE: class java.math.BigDecimal'
+                if (schema != null && Decimal.LOGICAL_NAME == schema.name) {
+                  convertToDouble(value)
+                }
                 else value match {
                   case arrayByte: Array[Byte] => arrayByte
                   case buffer: ByteBuffer => buffer.array
                   case _ => throw new DataException("Invalid type for bytes type: " + value.getClass)
                 }
-
+              }
               case Schema.Type.ARRAY =>
                 val valueSchema = Option(schema).map(_.valueSchema()).orNull
                 val list = new java.util.ArrayList[Any]
@@ -240,5 +262,8 @@ object SinkRecordConverter {
         jobj.obj.foldLeft(new Document) { case (d, JField(n, j)) => convert(n, j, d) }
       case _ => throw new IllegalArgumentException("Invalid json to convert to mongo ")
     }
+  }
+  def convertToDouble(decimalObj: Any): Double = decimalObj match {
+    case bd: java.math.BigDecimal => bd.doubleValue()
   }
 }
